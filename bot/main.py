@@ -42,7 +42,7 @@ LEAGUE_INFO = {
     "settings": (
         "*League Settings:*\n\n"
         "*Platform*: Fantrax\n\n"
-        "*Scoring Type*: weekly head-to-head with one opponent each week, earning a win or loss for each stat category. The regular season is 14 weeks. There are 9 stat categories in total: Points, Blocks, Steals, Assists, Rebounds, Ast/TO Ratio*, Three-Pointers Made, Field Goal Percentage, and Free Throw Percentage.\n"
+        "*Scoring Type*: weekly head-to-head with one opponent each week, earning a win or loss for each stat category. The regular season is 14 weeks. There are 9 stat categories in total: Points, Blocks, Steals, Assists, Rebounds, Ast/TO Ratio, Three-Pointers Made, Field Goal Percentage, and Free Throw Percentage.\n\n"
         "*Roster*: There will be 10 spots for active players each night and they can play unlimited games each week. There will also be 4 bench spots which equate to 14 players per team. In addition, there is 1 IR spot for injured players only. The IR spots WILL count against your cap.\n\n"
         "*Playoffs*: Six teams make the playoffs. The top two have a bye. Six teams who don't make playoffs will be placed in the consolation bracket where they will battle for rights to the top Rookie Draft lottery odds.\n\n"
         "*This is a dynasty league*: You can keep up to 8 players season to season. So as you draft, make sure to have the longest view in the room. You are now a General Manager and solely responsible for the future of your franchise."
