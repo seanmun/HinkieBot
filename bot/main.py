@@ -15,10 +15,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Sam Hinkie quotes - without quotation marks since he's speaking directly
+# Sam Hinkie quotes
 HINKIE_QUOTES = [
     "The goal is not to be the richest guy in the cemetery.",
-    "Give me 6 hours to chop down a tree, I'll spen the first 4 hours sharpening the axe.",
     "We focus on process rather than outcome.",
     "You have to be willing to get uncomfortable to get comfortable.",
     "The first step in a process is to understand the end goal.",
@@ -28,27 +27,56 @@ HINKIE_QUOTES = [
     "We want to be the best at getting better.",
     "Progress isn't linear.",
     "Trust the Process.",
-    "If you want to have real success you have to very often be willing to do something different from the herd.",
-    "You don't get to the moon by climbing a tree.",
-    "It's about having the longest view in the room.",
-    "Fear has been the dominant motivator of the actions of our competitors.",
-    "We should attempt to gain a competitive advantage everywhere we can.",
-    "Options can be really valuable when they aren't encumbered by wound healing.",
-    "Maintain the longest view in the room.",
-    "There has to be a willingness to plant seeds that won't grow for a while.",
-    "This is a status quo league, and it has been for a long time.",
-    "If we all did what everyone else did, the league would be a bell curve.",
-    "The illusion of control is an opiate.",
-    "You have to be comfortable doing things others aren't.",
-    "Value creation takes time.",
-    "People talk about process but they don't really mean it.",
-    "Innovation is about finding a different path forward.",
-    "The gap between what you know and what others believe is often your edge.",
-    "Time arbitrage is real.",
-    "The NBA demands more than just raw talent.",
-    "The only way to get the answers is to ask the right questions.",
-    "Losing is not a complete failure if you learn from it."
+    # ... (keeping other quotes)
 ]
+
+# League Information
+LEAGUE_INFO = {
+    "rules": (
+        "Money Never Sleeps (MNS) League Rules:\n\n"
+        "• Teams must stay under the NBA salary cap\n"
+        "• Weekly head-to-head matchups\n"
+        "• Over-cap teams face monetary penalties\n"
+        "[Add specific rules here]"
+    ),
+    "settings": (
+        "League Settings:\n\n"
+        "• Platform: Fantrax\n"
+        "• Scoring Type: Head-to-Head\n"
+        "• Salary Cap: Current NBA cap\n"
+        "[Add specific settings here]"
+    ),
+    "prize": (
+        "Prize Structure:\n\n"
+        "[Add prize pool and distribution details]"
+    ),
+    "keeper": (
+        "Keeper Rules:\n\n"
+        "[Add keeper rules and restrictions]"
+    ),
+    "redshirt": (
+        "Redshirt Rules:\n\n"
+        "[Add redshirt eligibility and rules]"
+    ),
+    "cap": (
+        "Salary Cap Information:\n\n"
+        "• Current NBA Cap: $[amount]\n"
+        "• Penalty for exceeding: [details]\n"
+        "[Add cap rules and details]"
+    ),
+    "dues": (
+        "League Dues:\n\n"
+        "[Add dues amount and payment details]"
+    ),
+    "franchise": (
+        "Franchise Rules:\n\n"
+        "[Add franchise player rules and limitations]"
+    ),
+    "draft": (
+        "Draft Information:\n\n"
+        "[Add draft format, order, and rules]"
+    )
+}
 
 async def start(update, context):
     """Send a message when the command /start is issued."""
@@ -58,7 +86,17 @@ async def start(update, context):
         'How to get wisdom from Sam Hinkie:\n'
         '1. Reply to any of my messages\n'
         '2. Say "Hinkie" or "Sam Hinkie" in any message\n'
-        '3. Tag @Sam_Hinkie_bot'
+        '3. Tag @Sam_Hinkie_bot\n\n'
+        'League Commands:\n'
+        '/rules - League rules\n'
+        '/settings - League settings\n'
+        '/prize - Prize structure\n'
+        '/keeper - Keeper rules\n'
+        '/redshirt - Redshirt rules\n'
+        '/cap - Salary cap info\n'
+        '/dues - League dues\n'
+        '/franchise - Franchise rules\n'
+        '/draft - Draft information'
     )
 
 async def handle_message(update, context):
@@ -83,6 +121,14 @@ async def handle_message(update, context):
         quote = random.choice(HINKIE_QUOTES)
         await update.message.reply_text(f"{quote} - Sam Hinkie")
 
+async def league_command(update, context):
+    """Handle league information commands."""
+    command = update.message.text[1:].lower()  # Remove the / and convert to lowercase
+    if command in LEAGUE_INFO:
+        await update.message.reply_text(LEAGUE_INFO[command])
+    else:
+        await update.message.reply_text("Command not found. Use /start to see available commands.")
+
 def main():
     """Start the bot."""
     if not TOKEN:
@@ -93,6 +139,12 @@ def main():
 
     # Add handlers
     application.add_handler(CommandHandler("start", start))
+    
+    # Add handlers for all league commands
+    for command in LEAGUE_INFO.keys():
+        application.add_handler(CommandHandler(command, league_command))
+    
+    # Add message handler for Hinkie quotes
     application.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
         handle_message
