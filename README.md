@@ -21,35 +21,6 @@ Get inspirational quotes from Sam Hinkie by:
 - `/franchise` - Franchise rules
 - `/draft` - Draft information
 
-## Setup
-
-1. Clone the repository
-```bash
-git clone https://github.com/yourusername/HinkieBot.git
-cd HinkieBot
-```
-
-2. Create a virtual environment
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies
-```bash
-pip install -r bot/requirements.txt
-```
-
-4. Create a `.env` file in the root directory with your bot token:
-```
-BOT_TOKEN=your_telegram_bot_token
-```
-
-5. Run the bot
-```bash
-python bot/main.py
-```
-
 ## Project Structure
 ```
 HinkieBot/
@@ -71,14 +42,6 @@ This bot is configured for deployment on Railway. The `Procfile` contains the ne
 - Player information lookup
 - Team information tracking
 - Fantrax API integration
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Acknowledgments
 

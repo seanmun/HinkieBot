@@ -183,6 +183,7 @@ async def handle_message(update, context):
     text = update.message.text
     print(f"Received message: {text}")
 
+    # Check if it's a reply to the bot
     reply_to = update.message.reply_to_message
     if reply_to and reply_to.from_user and reply_to.from_user.username == "Sam_Hinkie_bot":
         print("Found reply to bot")
@@ -192,15 +193,37 @@ async def handle_message(update, context):
          )
         return
 
-    # Check message text (case insensitive)
+    # Convert message to lowercase for checking
     text_lower = text.lower()
+
+    # Check for Hinkie mentions
     if 'hinkie' in text_lower or 'sam hinkie' in text_lower or '@sam_hinkie_bot' in text_lower:
         print(f"Found keyword in: {text}")
         quote = random.choice(HINKIE_QUOTES)
         await update.message.reply_text(f"{quote} - Sam Hinkie",
         parse_mode=ParseMode.MARKDOWN
         )
+        return
 
+    # Check for team owner names
+    if 'ian' in text_lower:
+        await update.message.reply_text("🐍")
+        return
+        
+    if 'pjio' in text_lower:
+        await update.message.reply_text("🤌🤌 heeeyy gabagol")
+        return
+        
+    if 'kirbiak' in text_lower:
+        await update.message.reply_text("🥷🥷 twinjas")
+        return
+        
+    if 'pudd' in text_lower:
+        await update.message.reply_text("Dave 🤴🏻")
+        return
+
+
+    # league commands
 async def league_command(update, context):
     """Handle league information commands."""
     command = update.message.text[1:].lower()  # Remove the / and convert to lowercase
