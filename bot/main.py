@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 import random
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram.constants import ParseMode
 import logging
 
 # Load environment variables
@@ -170,7 +171,8 @@ async def start(update, context):
         '/cap - Salary cap info\n'
         '/dues - League dues\n'
         '/franchise - Franchise rules\n'
-        '/draft - Draft information'
+        '/draft - Draft information',
+         parse_mode=ParseMode.MARKDOWN
     )
 
 async def handle_message(update, context):
@@ -185,7 +187,9 @@ async def handle_message(update, context):
     if reply_to and reply_to.from_user and reply_to.from_user.username == "Sam_Hinkie_bot":
         print("Found reply to bot")
         quote = random.choice(HINKIE_QUOTES)
-        await update.message.reply_text(f"{quote} - Sam Hinkie")
+        await update.message.reply_text(f"{quote} - Sam Hinkie",
+         parse_mode=ParseMode.MARKDOWN
+         )
         return
 
     # Check message text (case insensitive)
@@ -193,7 +197,9 @@ async def handle_message(update, context):
     if 'hinkie' in text_lower or 'sam hinkie' in text_lower or '@sam_hinkie_bot' in text_lower:
         print(f"Found keyword in: {text}")
         quote = random.choice(HINKIE_QUOTES)
-        await update.message.reply_text(f"{quote} - Sam Hinkie")
+        await update.message.reply_text(f"{quote} - Sam Hinkie",
+        parse_mode=ParseMode.MARKDOWN
+        )
 
 async def league_command(update, context):
     """Handle league information commands."""
