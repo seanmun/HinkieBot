@@ -172,8 +172,7 @@ async def start(update, context):
         '/cap - Salary cap info\n'
         '/dues - League dues\n'
         '/franchise - Franchise rules\n'
-        '/draft - Draft information',
-         parse_mode=ParseMode.MARKDOWN
+        '/draft - Draft information'
     )
 
 async def handle_message(update, context):
