@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 # Sam Hinkie quotes - without quotation marks since he's speaking directly
 HINKIE_QUOTES = [
     "The goal is not to be the richest guy in the cemetery.",
+    "Give me 6 hours to chop down a tree, I'll spen the first 4 hours sharpening the axe.",
     "We focus on process rather than outcome.",
     "You have to be willing to get uncomfortable to get comfortable.",
     "The first step in a process is to understand the end goal.",
