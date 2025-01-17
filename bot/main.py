@@ -88,9 +88,10 @@ LEAGUE_INFO = {
     ),
     "cap": (
         "*Salary Cap Information:*\n\n"
-        "_Salary Cap_ ($50 buy-in): $170,000,000\n"
-        "_First Apron_ ($50 fee): $210,000,000\n"
-        "_Second Apron_ ($2 fee for ever $1m over $210m): $250,000,000"
+        "*Salary Cap*: $170,000,000\n"
+        "*First Apron*: $210,000,000\n"
+        "*Second Apron*: $250,000,000\n\n"
+        "/dues to see cap related fee structure"
     ),
     "dues": (
         "*League Dues:*\n\n"
