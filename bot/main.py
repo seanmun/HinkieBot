@@ -205,9 +205,13 @@ async def league_command(update, context):
     """Handle league information commands."""
     command = update.message.text[1:].lower()  # Remove the / and convert to lowercase
     if command in LEAGUE_INFO:
-        await update.message.reply_text(LEAGUE_INFO[command])
+        await update.message.reply_text(LEAGUE_INFO[command],
+        parse_mode=ParseMode.MARKDOWN
+        )
     else:
-        await update.message.reply_text("Command not found. Use /start to see available commands.")
+        await update.message.reply_text("Command not found. Use /start to see available commands."
+        
+        )
 
 def main():
     """Start the bot."""
