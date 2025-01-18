@@ -236,27 +236,27 @@ async def handle_message(update, context):
         await update.message.reply_text("🅱️🅱️🅱️")
         return
     
-    if 'Colangelo' in text_lower:
+    if 'colangelo' in text_lower:
         await update.message.reply_text("Absolute peice of shit")
         return
     
-    if 'LiAngelo' in text_lower:
+    if 'liangelo' in text_lower:
         await update.message.reply_text("🅱️🅱️🅱️")
         return
     
-    if 'Okafor' in text_lower:
+    if 'okafor' in text_lower:
         await update.message.reply_text("Whooops that is my bad")
         return
     
-    if 'Joel Embiid' in text_lower:
+    if 'joel embiid' in text_lower:
         await update.message.reply_text("My Son will be the light that pulls this city from the darkness. \n\n The fruits of the process will soon ripen and the harvest will yield great things.\n\n Nno matter what you must always.\n\n ALWAYS.\n\n TRUST THE PROCESS")
         return
     
-    if 'Colangelo' in text_lower:
+    if 'colangelo' in text_lower:
         await update.message.reply_text("Absolute peice of shit")
         return
     
-    if 'Munley' in text_lower:
+    if 'munley' in text_lower:
         await update.message.reply_text("Worlds #1 Commish")
         return
     
