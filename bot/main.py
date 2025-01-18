@@ -221,6 +221,42 @@ async def handle_message(update, context):
     if 'pudd' in text_lower:
         await update.message.reply_text("Dave 🤴🏻")
         return
+    
+    if 'raskob' in text_lower:
+        await update.message.reply_text("👽")
+        return
+    
+    if 'lavar' in text_lower:
+        await update.message.reply_text("🅱️🅱️🅱️")
+        return
+    
+    if 'lamelo' in text_lower:
+        await update.message.reply_text("🅱️🅱️🅱️1️")
+        return
+    
+    if 'lonzo' in text_lower:
+        await update.message.reply_text("🅱️🅱️🅱️1️")
+        return
+    
+    if 'liangelo' in text_lower:
+        await update.message.reply_text("🅱️🅱️🅱️1️")
+        return
+    
+    if 'Okafor' in text_lower:
+        await update.message.reply_text("Whooops, that's my bad")
+        return
+    
+    if 'Joel Embiid' in text_lower:
+        await update.message.reply_text("My Son will be the light that pulls this city from the darkness. \n\n The fruits of the process will soon ripen, and the harvest will yield great things.\n\n Nno matter what you must always.\n\n ALWAYS.\n\n TRUST THE PROCESS")
+        return
+    
+    if 'Colangelo' in text_lower:
+        await update.message.reply_text("Absolute peice of shit!")
+        return
+    
+    if 'Munley' in text_lower:
+        await update.message.reply_text("Worlds #1 Commish!")
+        return
 
 
     # league commands
