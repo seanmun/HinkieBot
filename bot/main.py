@@ -249,7 +249,7 @@ async def handle_message(update, context):
         return
     
     if 'joel embiid' in text_lower:
-        await update.message.reply_text("My Son will be the light that pulls this city from the darkness. \n\n The fruits of the process will soon ripen and the harvest will yield great things.\n\n Nno matter what you must always.\n\n ALWAYS.\n\n TRUST THE PROCESS")
+        await update.message.reply_text("My Son will be the light that pulls this city from the darkness. \n\nThe fruits of the process will soon ripen and the harvest will yield great things.\n\n No matter what you must always...\n\n ALWAYS...\n\nTRUST THE PROCESS")
         return
     
     if 'colangelo' in text_lower:
