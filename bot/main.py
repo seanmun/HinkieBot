@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 import random
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram.constants import ParseMode
+from datetime import datetime, time, timedelta
+from fantrax_api import FantraxAPI  # Import our new API client
 import logging
 
 # Load environment variables
@@ -12,7 +14,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 # Enable logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.DEBUG
+    level=logging.INFO  # Changed from DEBUG to INFO
 )
 logger = logging.getLogger(__name__)
 
@@ -172,7 +174,14 @@ async def start(update, context):
         '/cap - Salary cap info\n'
         '/dues - League dues\n'
         '/franchise - Franchise rules\n'
-        '/draft - Draft information'
+        '/draft - Draft information\n\n'
+        'Roster & Player Commands:\n'
+        '/roster [team name] - View team roster\n'
+        '/player [player name] - View player info including team and salary\n\n'
+        'League Status:\n'
+        '/standings - Current league standings\n'
+        '/currentmatchups - View this week\'s matchups\n'
+        '/results [week] - View matchup results'
     )
 
 async def handle_message(update, context):
@@ -280,6 +289,548 @@ async def league_command(update, context):
             parse_mode=ParseMode.MARKDOWN  # Add parse_mode here too
         )
 
+async def matchups_command(update, context):
+    """Handle the /matchups command"""
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    
+    try:
+        league_info = await api.get_league_info()
+        matchups = api.get_current_matchups(league_info)
+        message = api.format_matchup_message(matchups)
+        await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await update.message.reply_text(
+            f"Error retrieving matchups: {str(e)}"
+        )
+
+# Fantrax API
+async def team_command(update, context):
+    """Handle the /team command"""
+    if not context.args:
+        await update.message.reply_text(
+            "Please provide a team name. Example: /team Sean"
+        )
+        return
+
+    team_name = " ".join(context.args)
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    
+    try:
+        team_info = await api.format_team_info(team_name)
+        await update.message.reply_text(team_info, parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await update.message.reply_text(
+            f"Error retrieving team information: {str(e)}"
+        )
+
+async def send_weekly_update(self, chat_id: str, bot) -> None:
+    """Send weekly matchup updates to the specified chats"""
+    try:
+        league_info = await self.get_league_info()
+        matchups = self.get_current_matchups(league_info)
+        message = self.format_matchup_message(matchups)
+        
+        # Split chat_ids and send to each one
+        chat_ids = chat_id.split(',')
+        for cid in chat_ids:
+            try:
+                await bot.send_message(
+                    chat_id=cid.strip(),  # strip to remove any whitespace
+                    text=message,
+                    parse_mode="MARKDOWN"
+                )
+            except Exception as e:
+                print(f"Error sending to chat {cid}: {str(e)}")
+                continue
+                
+    except Exception as e:
+        print(f"Error sending weekly update: {str(e)}")
+
+
+
+async def save_response_command(update, context):
+    """Save API response to a file"""
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    
+    try:
+        result = await api.save_api_response()
+        await update.message.reply_text(result)
+    except Exception as e:
+        await update.message.reply_text(f"Error: {str(e)}")
+
+
+# Fantrax Player handler:
+async def player_command(update, context):
+    """Handle the /player command"""
+    if not context.args:
+        await update.message.reply_text(
+            "Please provide a player name. Example: /player Joel Embiid"
+        )
+        return
+
+    player_name = " ".join(context.args)
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    
+    try:
+        player_info = await api.get_player_info(player_name)
+        
+        # Format response
+        message = (
+            f"*{player_info['name']}*\n"
+            f"• Status: {player_info['status']}\n"
+            f"• Team: {player_info['team']}\n"
+            f"• Positions: {', '.join(player_info['positions'])}\n"
+            f"• Salary: {player_info['salary']}\n"
+            f"• {player_info.get('debug_info', '')}"
+        )
+        
+        await update.message.reply_text(
+            message,
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        print(f"Error in player command: {str(e)}")
+        await update.message.reply_text(
+            f"Error retrieving player information: {str(e)}"
+        )
+
+    # Teams Commands
+async def teams_command(update, context):
+    """Handle the /teams command to show all teams in the league"""
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    
+    try:
+        teams = await api.get_teams()
+        
+        if "error" in teams:
+            await update.message.reply_text(f"Error: {teams['error']}")
+            return
+            
+        # Format the response
+        message = "*MNS League Teams*\n\n"
+        for team_id, team_data in teams.items():
+            message += f"• *{team_data['name']}*\n"
+            if team_data['shortName']:
+                message += f"  └ Short name: {team_data['shortName']}\n"
+        
+        await update.message.reply_text(
+            message, 
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(
+            f"Error retrieving teams: {type(e).__name__}"
+        )
+
+async def roster_rules_command(update, context):
+    """Handle the /rosterrules command to show roster constraints"""
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    
+    try:
+        constraints = await api.get_roster_constraints()
+        
+        if "error" in constraints:
+            await update.message.reply_text(f"Error: {constraints['error']}")
+            return
+            
+        # Format the response
+        message = "*Roster Rules*\n\n"
+        message += "*Position Limits:*\n"
+        # Only show positions with non-zero active slots
+        for pos, data in constraints["positions"].items():
+            if data['maxActive'] > 0:  # Only show active positions
+                message += f"• {pos}: {data['maxActive']} active\n"
+        
+        message += "\n*Roster Limits:*\n"
+        message += f"• Total Players: {constraints['maxPlayers']}\n"
+        message += f"• Active Players: {constraints['maxActive']}\n"
+        message += f"• Reserve Players: {constraints['maxReserve']}\n"
+        
+        await update.message.reply_text(
+            message, 
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(
+            f"Error retrieving roster rules: {type(e).__name__}"
+        )
+
+async def schedule_command(update, context):
+    """Handle /schedule [team name] to show a team's schedule"""
+    if not context.args:
+        await update.message.reply_text(
+            "Please provide a team name. Example: /schedule PJio"
+        )
+        return
+
+    team_name = " ".join(context.args).lower()
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    
+    try:
+        league_info = await api.get_league_info()
+        teams = await api.get_teams()
+        
+        # Find the team
+        target_team = None
+        for team_id, team_data in teams.items():
+            if team_name in team_data['name'].lower() or team_name in team_data['shortName'].lower():
+                target_team = team_data
+                break
+        
+        if not target_team:
+            await update.message.reply_text(f"Team '{' '.join(context.args)}' not found")
+            return
+
+        # Get matchups for this team
+        message = f"*Schedule for {target_team['name']}*\n\n"
+        for period in league_info.get('matchups', []):
+            period_num = period.get('period', '?')
+            for matchup in period.get('matchupList', []):
+                if (matchup.get('home', {}).get('id') == target_team['id'] or 
+                    matchup.get('away', {}).get('id') == target_team['id']):
+                    opponent = matchup['away'] if matchup['home']['id'] == target_team['id'] else matchup['home']
+                    home_away = "vs" if matchup['home']['id'] == target_team['id'] else "@"
+                    message += f"Week {period_num}: {home_away} {opponent['name']}\n"
+        
+        await update.message.reply_text(
+            message,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(
+            f"Error retrieving schedule: {type(e).__name__}"
+        )
+
+async def team_detail_command(update, context):
+    """Handle /teaminfo [team name] to show detailed team information"""
+    if not context.args:
+        await update.message.reply_text(
+            "Please provide a team name. Example: /teaminfo PJio"
+        )
+        return
+
+    team_name = " ".join(context.args).lower()
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    
+    try:
+        teams = await api.get_teams()
+        
+        # Find the team
+        team_data = None
+        for team_id, data in teams.items():
+            if team_name in data['name'].lower() or team_name in data['shortName'].lower():
+                team_data = data
+                break
+                
+        if not team_data:
+            await update.message.reply_text(f"Team '{' '.join(context.args)}' not found")
+            return
+            
+        message = (
+            f"*{team_data['name']}*\n"
+            f"Short Name: {team_data['shortName']}\n"
+            f"Team ID: `{team_data['id']}`\n"
+        )
+        
+        await update.message.reply_text(
+            message,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(
+            f"Error retrieving team info: {type(e).__name__}"
+        )
+
+async def current_matchups_command(update, context):
+    """Handle /currentmatchups command to show this week's matchups"""
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    
+    try:
+        league_info = await api.get_league_info()
+        matchups = league_info.get("matchups", [])
+        
+        if not matchups:
+            await update.message.reply_text("No matchup data available")
+            return
+        
+        # Calculate current week
+        # Example: If today is Jan 20, 2025 and we're in week 14
+        season_start = datetime(2024, 10, 28)  # First Monday of season
+        today = datetime.now()
+        week_number = 14  # Current week as of Jan 20
+        
+        # Find the correct period
+        current_period = None
+        for period in matchups:
+            if period.get("period") == week_number:
+                current_period = period
+                break
+                
+        if not current_period:
+            await update.message.reply_text("Could not find current week's matchups")
+            return
+            
+        message = f"*Week {week_number} Matchups*\n\n"
+        
+        for matchup in current_period.get("matchupList", []):
+            away_team = matchup.get("away", {})
+            home_team = matchup.get("home", {})
+            
+            if away_team and home_team:
+                message += f"• {away_team['name']} @ {home_team['name']}\n"
+        
+        message += "\n_New matchups start on Mondays_"
+        
+        await update.message.reply_text(
+            message,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(
+            f"Error retrieving current matchups: {type(e).__name__}"
+        )
+
+async def results_command(update, context):
+    """Handle /results [week] command to show matchup results"""
+    if not context.args:
+        await update.message.reply_text(
+            "Please specify a week. Examples:\n"
+            "/results last week\n"
+            "/results this week\n"
+            "/results week 11"
+        )
+        return
+
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    
+    try:
+        # Parse the requested week
+        request = " ".join(context.args).lower()
+        current_week = 14  # We'll make this dynamic later
+        
+        if request == "last week":
+            target_week = current_week - 1
+        elif request == "this week":
+            target_week = current_week
+        elif request.startswith("week "):
+            try:
+                target_week = int(request.replace("week ", ""))
+            except ValueError:
+                await update.message.reply_text(
+                    "Invalid week number. Please use format: week [number]"
+                )
+                return
+        else:
+            await update.message.reply_text(
+                "Invalid format. Examples:\n"
+                "/results last week\n"
+                "/results this week\n"
+                "/results week 11"
+            )
+            return
+
+        # Get the matchup data
+        league_info = await api.get_league_info()
+        matchups = league_info.get("matchups", [])
+        
+        # Find the requested week's matchups
+        target_period = None
+        for period in matchups:
+            if period.get("period") == target_week:
+                target_period = period
+                break
+                
+        if not target_period:
+            await update.message.reply_text(f"Could not find matchups for week {target_week}")
+            return
+            
+        message = f"*Week {target_week} Results*\n\n"
+        
+        for matchup in target_period.get("matchupList", []):
+            away_team = matchup.get("away", {})
+            home_team = matchup.get("home", {})
+            
+            if away_team and home_team:
+                message += f"• {away_team['name']} @ {home_team['name']}\n"
+                # We'll add scores here once we see the scoring data structure
+        
+        await update.message.reply_text(
+            message,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(
+            f"Error retrieving results: {type(e).__name__}"
+        )
+
+
+async def standings_command(update, context):
+    """Handle /standings command"""
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    
+    try:
+        standings = await api.get_standings()
+        
+        if "error" in standings:
+            await update.message.reply_text(f"Error: {standings['error']}")
+            return
+            
+        message = "*League Standings*\n\n"
+        
+        # Format each team's standing
+        for team in standings:
+            message += (
+                f"{team['rank']}. *{team['teamName']}*\n"
+                f"   Record: {team['points']}\n"
+                f"   Win%: {team['winPercentage']:.3f}\n"
+                f"   GB: {team['gamesBack']}\n\n"
+            )
+        
+        await update.message.reply_text(
+            message,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        print(f"Error in standings command: {str(e)}")
+        await update.message.reply_text(
+            f"Error retrieving standings: {str(e)}"
+        )
+
+
+# Add this after your LEAGUE_INFO dictionary
+
+TEAM_ALIASES = {
+    "Shamous Royals Big Ballers": ["sean", "munley", "commish", "buddy"],
+    "PJio": ["pj", "gio", "steve", "croyle", "giordano"],
+    "Liberty County Jokers": ["rick", "asman", "assman" , "ricky"],
+    "Turning Garbage Into Gold": ["woods", "bryan", "woodz"],
+    "Kirbiak": ["kirby", "osiack", "kirbiac"],
+    "Young Hunks Making Dunks": ["pj", "pjio", "pete"],
+    "Chav": ["chav", "kevin", "chavarria"],
+    "Dave King": ["pudd", "dave king awards", "pudding"],
+    "Baddeous Young": ["bad", "badman", "andrew", "franklin"],
+    "Big Baller": ["ian", "cassel", "snake"],
+    "Tea Mike": ["tea mike", "tea", "pee mike"],
+    "Shadowboxers": ["matt", "stine", "slime"]
+    # Add more teams and their aliases
+    # "Team Official Name": ["alias1", "alias2", "nickname", etc],
+}
+
+# Function to get team name from alias
+def get_team_from_alias(search_term: str) -> str:
+    """Get the official team name from any alias"""
+    search_term = search_term.lower()
+    for team_name, aliases in TEAM_ALIASES.items():
+        if search_term in [alias.lower() for alias in aliases] or search_term in team_name.lower():
+            return team_name
+    return search_term  # Return original if no match found
+
+# Then modify your roster_command to use this
+async def roster_command(update, context):
+    """Handle /roster [team name] command"""
+    if not context.args:
+        await update.message.reply_text(
+            "Please provide a team name or owner name. Example: /roster Sean"
+        )
+        return
+
+    search_term = " ".join(context.args).lower()
+    team_name = get_team_from_alias(search_term)
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    
+    try:
+        rosters = await api.get_team_rosters()
+        player_names = await api.get_player_names()  # Get player names
+        
+        if "error" in rosters:
+            await update.message.reply_text(f"Error: {rosters['error']}")
+            return
+            
+        # Find the team's roster
+        team_roster = None
+        for id, team_data in rosters["rosters"].items():
+            if team_name.lower() in team_data["teamName"].lower():
+                team_roster = team_data
+                break
+                
+        if not team_roster:
+            await update.message.reply_text(f"Team '{team_name}' not found")
+            return
+            
+        # Rest of your existing roster_command code stays the same
+        message = f"*{team_roster['teamName']} Roster*\n\n"
+        
+        # Active players
+        message += "*Active Players:*\n"
+        active_players = [p for p in team_roster["rosterItems"] if p["status"] == "ACTIVE"]
+        for player in active_players:
+            name = player_names.get(player['id'], {}).get('name', 'Unknown Player')
+            message += f"• {name} - {player['position']} (${player['salary']:,.0f})\n"
+            
+        # Rest of the formatting code remains the same...
+            
+        # Reserve players
+        message += "\n*Reserve Players:*\n"
+        reserve_players = [p for p in team_roster["rosterItems"] if p["status"] == "RESERVE"]
+        for player in reserve_players:
+            name = player_names.get(player['id'], {}).get('name', 'Unknown Player')
+            message += f"• {name} - {player['position']} (${player['salary']:,.0f})\n"
+            
+        # Minor League players
+        minors = [p for p in team_roster["rosterItems"] if p["status"] == "MINORS"]
+        if minors:
+            message += "\n*Minor League:*\n"
+            for player in minors:
+                name = player_names.get(player['id'], {}).get('name', 'Unknown Player')
+                message += f"• {name} - {player['position']} (${player['salary']:,.0f})\n"
+                
+        # Injured Reserve
+        injured = [p for p in team_roster["rosterItems"] if p["status"] == "INJURED_RESERVE"]
+        if injured:
+            message += "\n*Injured Reserve:*\n"
+            for player in injured:
+                name = player_names.get(player['id'], {}).get('name', 'Unknown Player')
+                message += f"• {name} - {player['position']} (${player['salary']:,.0f})\n"
+                
+        # Add salary cap info
+        total_salary = sum(p["salary"] for p in team_roster["rosterItems"] if p["status"] != "MINORS")
+        message += f"\n*Salary Cap: ${team_roster['salaryCap']:,.0f}*\n"
+        message += f"*Total Salary: ${total_salary:,.0f}*"
+        
+        await update.message.reply_text(
+            message,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        print(f"Error in roster command: {str(e)}")
+        await update.message.reply_text(
+            f"Error retrieving roster: {str(e)}"
+        )
+        
+
+# Test Command
+async def test_command(update, context):
+    """Test the Fantrax API connection"""
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    
+    try:
+        working = await api.test_connection()
+        if working:
+            await update.message.reply_text("✅ Fantrax API connection working!")
+        else:
+            await update.message.reply_text("❌ Fantrax API connection failed!")
+    except Exception as e:
+        await update.message.reply_text(f"Error testing API: {str(e)}")
+
+
 def main():
     """Start the bot."""
     if not TOKEN:
@@ -290,6 +841,33 @@ def main():
 
     # Add handlers
     application.add_handler(CommandHandler("start", start))
+
+    # From Fantrax
+    application.add_handler(CommandHandler("matchups", matchups_command))
+    application.add_handler(CommandHandler("team", team_command))
+    application.add_handler(CommandHandler("player", player_command))
+
+    # Fantrax Teams
+    application.add_handler(CommandHandler("teams", teams_command))
+    application.add_handler(CommandHandler("rosterrules", roster_rules_command))
+    application.add_handler(CommandHandler("schedule", schedule_command))
+    application.add_handler(CommandHandler("teaminfo", team_detail_command))
+    application.add_handler(CommandHandler("currentmatchups", current_matchups_command))
+    application.add_handler(CommandHandler("results", results_command))
+    application.add_handler(CommandHandler("saveresponse", save_response_command))
+    application.add_handler(CommandHandler("standings", standings_command))
+    application.add_handler(CommandHandler("roster", roster_command))
+
+    # test command
+    application.add_handler(CommandHandler("test", test_command))
+
+     # Schedule weekly updates
+    job_queue = application.job_queue
+    job_queue.run_daily(
+        send_weekly_update,
+        days=(0,),  # Monday
+        time=time(9, 0)  # 9:00 AM
+    )
     
     # Add handlers for all league commands
     for command in LEAGUE_INFO.keys():
