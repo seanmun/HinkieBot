@@ -712,7 +712,7 @@ TEAM_ALIASES = {
     "Liberty County Jokers": ["rick", "asman", "assman" , "ricky"],
     "Turning Garbage Into Gold": ["woods", "bryan", "woodz"],
     "Kirbiak": ["kirby", "osiack", "kirbiac"],
-    "Young Hunks Making Dunks": ["pj", "pjio", "pete"],
+    "Young Hunks Making Dunks": ["raskob", "raskov", "dave raskob"],
     "Chav": ["chav", "kevin", "chavarria"],
     "Dave King": ["pudd", "dave king awards", "pudding"],
     "Baddeous Young": ["bad", "badman", "andrew", "franklin"],
