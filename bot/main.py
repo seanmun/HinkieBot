@@ -5,7 +5,9 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram.constants import ParseMode
 from datetime import datetime, time, timedelta
 from fantrax_api import FantraxAPI  # Import our new API client
+from datetime import datetime, time
 import logging
+import pytz
 
 # Load environment variables
 load_dotenv()
@@ -180,8 +182,7 @@ async def start(update, context):
         '/player [player name] - View player info including team and salary\n\n'
         'League Status:\n'
         '/standings - Current league standings\n'
-        '/currentmatchups - View this week\'s matchups\n'
-        '/results [week] - View matchup results'
+        '/matchups [week] - View matchup results'
     )
 
 async def handle_message(update, context):
@@ -289,19 +290,7 @@ async def league_command(update, context):
             parse_mode=ParseMode.MARKDOWN  # Add parse_mode here too
         )
 
-async def matchups_command(update, context):
-    """Handle the /matchups command"""
-    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
-    
-    try:
-        league_info = await api.get_league_info()
-        matchups = api.get_current_matchups(league_info)
-        message = api.format_matchup_message(matchups)
-        await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
-    except Exception as e:
-        await update.message.reply_text(
-            f"Error retrieving matchups: {str(e)}"
-        )
+
 
 # Fantrax API
 async def team_command(update, context):
@@ -322,29 +311,6 @@ async def team_command(update, context):
         await update.message.reply_text(
             f"Error retrieving team information: {str(e)}"
         )
-
-async def send_weekly_update(self, chat_id: str, bot) -> None:
-    """Send weekly matchup updates to the specified chats"""
-    try:
-        league_info = await self.get_league_info()
-        matchups = self.get_current_matchups(league_info)
-        message = self.format_matchup_message(matchups)
-        
-        # Split chat_ids and send to each one
-        chat_ids = chat_id.split(',')
-        for cid in chat_ids:
-            try:
-                await bot.send_message(
-                    chat_id=cid.strip(),  # strip to remove any whitespace
-                    text=message,
-                    parse_mode="MARKDOWN"
-                )
-            except Exception as e:
-                print(f"Error sending to chat {cid}: {str(e)}")
-                continue
-                
-    except Exception as e:
-        print(f"Error sending weekly update: {str(e)}")
 
 
 
@@ -545,74 +511,38 @@ async def team_detail_command(update, context):
             f"Error retrieving team info: {type(e).__name__}"
         )
 
-async def current_matchups_command(update, context):
-    """Handle /currentmatchups command to show this week's matchups"""
-    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
-    
-    try:
-        league_info = await api.get_league_info()
-        matchups = league_info.get("matchups", [])
-        
-        if not matchups:
-            await update.message.reply_text("No matchup data available")
-            return
-        
-        # Calculate current week
-        # Example: If today is Jan 20, 2025 and we're in week 14
-        season_start = datetime(2024, 10, 28)  # First Monday of season
-        today = datetime.now()
-        week_number = 14  # Current week as of Jan 20
-        
-        # Find the correct period
-        current_period = None
-        for period in matchups:
-            if period.get("period") == week_number:
-                current_period = period
-                break
-                
-        if not current_period:
-            await update.message.reply_text("Could not find current week's matchups")
-            return
-            
-        message = f"*Week {week_number} Matchups*\n\n"
-        
-        for matchup in current_period.get("matchupList", []):
-            away_team = matchup.get("away", {})
-            home_team = matchup.get("home", {})
-            
-            if away_team and home_team:
-                message += f"• {away_team['name']} @ {home_team['name']}\n"
-        
-        message += "\n_New matchups start on Mondays_"
-        
-        await update.message.reply_text(
-            message,
-            parse_mode=ParseMode.MARKDOWN
-        )
-        
-    except Exception as e:
-        await update.message.reply_text(
-            f"Error retrieving current matchups: {type(e).__name__}"
-        )
-
-async def results_command(update, context):
-    """Handle /results [week] command to show matchup results"""
+async def matchups_command(update, context):
+    """Handle /matchups [week] command to show matchups"""
     if not context.args:
         await update.message.reply_text(
             "Please specify a week. Examples:\n"
-            "/results last week\n"
-            "/results this week\n"
-            "/results week 11"
+            "/matchups last week\n"
+            "/matchups this week\n"
+            "/matchups week 11"
         )
         return
 
     api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
     
     try:
-        # Parse the requested week
+        # Parse the requested week first
         request = " ".join(context.args).lower()
-        current_week = 14  # We'll make this dynamic later
+        print(f"\n=== MATCHUPS DEBUG ===")
+        print(f"User requested: {request}")
         
+        # Get the matchup data
+        league_info = await api.get_league_info()
+        matchups = league_info.get("matchups", [])
+        
+        # Print just the period numbers available
+        print(f"Available periods: {[p.get('period') for p in matchups]}")
+        
+        # Set current week
+        current_week = 15
+        print(f"Current week set to: {current_week}")
+        
+        # Determine target week
+        target_week = None
         if request == "last week":
             target_week = current_week - 1
         elif request == "this week":
@@ -628,36 +558,34 @@ async def results_command(update, context):
         else:
             await update.message.reply_text(
                 "Invalid format. Examples:\n"
-                "/results last week\n"
-                "/results this week\n"
-                "/results week 11"
+                "/matchups last week\n"
+                "/matchups this week\n"
+                "/matchups week 11"
             )
             return
 
-        # Get the matchup data
-        league_info = await api.get_league_info()
-        matchups = league_info.get("matchups", [])
+        print(f"Looking for week: {target_week}")
         
         # Find the requested week's matchups
         target_period = None
         for period in matchups:
             if period.get("period") == target_week:
                 target_period = period
+                print(f"Found period {target_week}")
                 break
                 
         if not target_period:
             await update.message.reply_text(f"Could not find matchups for week {target_week}")
             return
             
-        message = f"*Week {target_week} Results*\n\n"
+        message = f"*Week {target_week} Matchups*\n\n"
         
         for matchup in target_period.get("matchupList", []):
             away_team = matchup.get("away", {})
             home_team = matchup.get("home", {})
             
             if away_team and home_team:
-                message += f"• {away_team['name']} @ {home_team['name']}\n"
-                # We'll add scores here once we see the scoring data structure
+                message += f"• {away_team.get('name')} @ {home_team.get('name')}\n"
         
         await update.message.reply_text(
             message,
@@ -665,8 +593,9 @@ async def results_command(update, context):
         )
         
     except Exception as e:
+        print(f"Error in matchups command: {str(e)}")
         await update.message.reply_text(
-            f"Error retrieving results: {type(e).__name__}"
+            f"Error retrieving matchups: {type(e).__name__}"
         )
 
 
@@ -814,7 +743,143 @@ async def roster_command(update, context):
         await update.message.reply_text(
             f"Error retrieving roster: {str(e)}"
         )
+
+# In main.py, update the scheduler setup:
+
+async def scheduled_standings(context):
+    """Send weekly standings update"""
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    chat_ids = os.getenv("CHAT_ID").split(',')
+    
+    try:
+        standings = await api.get_standings()
         
+        message = "*League Standings*\n\n"
+        
+        # Format standings
+        for team in standings:
+            message += (
+                f"{team['rank']}. *{team['teamName']}*\n"
+                f"   Record: {team['points']}\n"
+                f"   Win%: {team['winPercentage']:.3f}\n"
+                f"   GB: {team['gamesBack']}\n\n"
+            )
+        
+        # Send to all configured chat IDs
+        for chat_id in chat_ids:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id.strip(),
+                    text=message,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception as e:
+                print(f"Error sending standings to chat {chat_id}: {str(e)}")
+                
+    except Exception as e:
+        print(f"Error in scheduled standings: {str(e)}")
+
+async def scheduled_matchups(context):
+    """Send weekly matchups update"""
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    chat_ids = os.getenv("CHAT_ID").split(',')
+    
+    try:
+        # Get league info and find current week
+        league_info = await api.get_league_info()
+        matchups = league_info.get("matchups", [])
+        current_week = 15  # This will auto-increment each week
+        
+        # Find the current week's matchups
+        target_period = None
+        for period in matchups:
+            if period.get("period") == current_week:
+                target_period = period
+                break
+                
+        if not target_period:
+            print(f"Could not find matchups for week {current_week}")
+            return
+            
+        message = f"*Week {current_week} Matchups*\n\n"
+        
+        for matchup in target_period.get("matchupList", []):
+            away_team = matchup.get("away", {})
+            home_team = matchup.get("home", {})
+            
+            if away_team and home_team:
+                message += f"• {away_team.get('name')} @ {home_team.get('name')}\n"
+        
+        message += "\n_Good luck! Trust The Process 🏀_"
+        
+        # Send to all configured chat IDs
+        for chat_id in chat_ids:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id.strip(),
+                    text=message,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception as e:
+                print(f"Error sending matchups to chat {chat_id}: {str(e)}")
+                
+    except Exception as e:
+        print(f"Error in scheduled matchups: {str(e)}")
+
+        
+async def weekly_update(context):
+    """Send weekly matchup updates"""
+    api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
+    chat_ids = os.getenv("CHAT_ID").split(',')
+    
+    try:
+        league_info = await api.get_league_info()
+        
+        # Find current period
+        today = datetime.now()
+        current_period = None
+        for period in league_info.get("matchups", []):
+            start_date = period.get("startDate")
+            end_date = period.get("endDate")
+            
+            if start_date and end_date:
+                start = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                end = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                
+                if start <= today <= end:
+                    current_period = period
+                    break
+        
+        if not current_period:
+            print("No current period found for weekly update")
+            return
+            
+        message = f"*🏀 Week {current_period.get('period')} Matchups*\n\n"
+        
+        for matchup in current_period.get("matchupList", []):
+            away_team = matchup.get("away", {})
+            home_team = matchup.get("home", {})
+            
+            if away_team and home_team:
+                message += f"• {away_team.get('name')} @ {home_team.get('name')}\n"
+        
+        message += "\n_Good luck! Trust The Process 🏀_"
+        
+        # Send to all configured chat IDs
+        for chat_id in chat_ids:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id.strip(),
+                    text=message,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                print(f"Weekly update sent to chat {chat_id}")
+            except Exception as e:
+                print(f"Error sending to chat {chat_id}: {str(e)}")
+                
+    except Exception as e:
+        print(f"Error in weekly_update: {str(e)}")
+
 
 # Test Command
 async def test_command(update, context):
@@ -829,7 +894,6 @@ async def test_command(update, context):
             await update.message.reply_text("❌ Fantrax API connection failed!")
     except Exception as e:
         await update.message.reply_text(f"Error testing API: {str(e)}")
-
 
 def main():
     """Start the bot."""
@@ -852,8 +916,7 @@ def main():
     application.add_handler(CommandHandler("rosterrules", roster_rules_command))
     application.add_handler(CommandHandler("schedule", schedule_command))
     application.add_handler(CommandHandler("teaminfo", team_detail_command))
-    application.add_handler(CommandHandler("currentmatchups", current_matchups_command))
-    application.add_handler(CommandHandler("results", results_command))
+    application.add_handler(CommandHandler("matchups", matchups_command))
     application.add_handler(CommandHandler("saveresponse", save_response_command))
     application.add_handler(CommandHandler("standings", standings_command))
     application.add_handler(CommandHandler("roster", roster_command))
@@ -861,12 +924,26 @@ def main():
     # test command
     application.add_handler(CommandHandler("test", test_command))
 
-     # Schedule weekly updates
+    # Schedule weekly updates - single configuration
     job_queue = application.job_queue
     job_queue.run_daily(
-        send_weekly_update,
-        days=(0,),  # Monday
-        time=time(9, 0)  # 9:00 AM
+        weekly_update,
+        time=time(13, 0),  # This will be 9:00 AM ET (UTC-4)
+        days=(0,)  # Monday
+    )
+
+        # Standings at 9 AM ET (13:00 UTC)
+    job_queue.run_daily(
+        scheduled_standings,
+        time=time(13, 0),  # 9:00 AM ET
+        days=(0,)  # Monday
+    )
+    
+    # Matchups at 11 AM ET (15:00 UTC)
+    job_queue.run_daily(
+        scheduled_matchups,
+        time=time(15, 0),  # 11:00 AM ET
+        days=(0,)  # Monday
     )
     
     # Add handlers for all league commands
