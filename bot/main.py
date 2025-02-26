@@ -219,7 +219,7 @@ async def handle_message(update, context):
 
         
     if 'pjio' in text_lower:
-        await update.message.reply_text("🤌🤌 heeeyy gabagol")
+        await update.message.reply_text("🤌 heeeyy gabagol")
         return
         
     if 'kirbiak' in text_lower:
@@ -258,7 +258,7 @@ async def handle_message(update, context):
         await update.message.reply_text("Whooops that is my bad")
         return
     
-    if 'joel embiid' in text_lower:
+    if 'embiid' in text_lower:
         await update.message.reply_text("My Son will be the light that pulls this city from the darkness.\n\nThe fruits of the process will soon ripen and the harvest will yield great things.\n\nNo matter what you must always...\n\nALWAYS...\n\nTRUST THE PROCESS")
         return
     
@@ -272,6 +272,10 @@ async def handle_message(update, context):
     
     if 'ian' in text_lower:
         await update.message.reply_text("🐍")
+        return
+
+    if 'fartcoin' in text_lower:
+        await update.message.reply_text("Hot air rises 💨")
         return
 
 
@@ -511,6 +515,7 @@ async def team_detail_command(update, context):
             f"Error retrieving team info: {type(e).__name__}"
         )
 
+# Also update matchups_command to use the same function
 async def matchups_command(update, context):
     """Handle /matchups [week] command to show matchups"""
     if not context.args:
@@ -525,24 +530,10 @@ async def matchups_command(update, context):
     api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
     
     try:
-        # Parse the requested week first
+        # Parse the requested week
         request = " ".join(context.args).lower()
-        print(f"\n=== MATCHUPS DEBUG ===")
-        print(f"User requested: {request}")
+        current_week = get_current_week()
         
-        # Get the matchup data
-        league_info = await api.get_league_info()
-        matchups = league_info.get("matchups", [])
-        
-        # Print just the period numbers available
-        print(f"Available periods: {[p.get('period') for p in matchups]}")
-        
-        # Set current week
-        current_week = 15
-        print(f"Current week set to: {current_week}")
-        
-        # Determine target week
-        target_week = None
         if request == "last week":
             target_week = current_week - 1
         elif request == "this week":
@@ -564,14 +555,15 @@ async def matchups_command(update, context):
             )
             return
 
-        print(f"Looking for week: {target_week}")
+        # Get the matchup data
+        league_info = await api.get_league_info()
+        matchups = league_info.get("matchups", [])
         
         # Find the requested week's matchups
         target_period = None
         for period in matchups:
             if period.get("period") == target_week:
                 target_period = period
-                print(f"Found period {target_week}")
                 break
                 
         if not target_period:
@@ -597,7 +589,6 @@ async def matchups_command(update, context):
         await update.message.reply_text(
             f"Error retrieving matchups: {type(e).__name__}"
         )
-
 
 async def standings_command(update, context):
     """Handle /standings command"""
@@ -779,16 +770,42 @@ async def scheduled_standings(context):
     except Exception as e:
         print(f"Error in scheduled standings: {str(e)}")
 
+# Add this function to determine the current week
+def get_current_week():
+    """
+    Calculate the current week number based on the season start date
+    Season starts on October 28, 2024 (Week 1)
+    """
+    season_start = datetime(2024, 10, 28)  # First Monday of the season (Week 1)
+    today = datetime.now()
+    
+    # If we're before the season start, return week 1
+    if today < season_start:
+        return 1
+        
+    # Calculate weeks since season start
+    days_since_start = (today - season_start).days
+    weeks_since_start = days_since_start // 7
+    
+    # Add 1 because Week 1 starts at the season_start date
+    current_week = weeks_since_start + 1
+    
+    # Cap at maximum number of weeks in a season (usually 14-21 for NBA)
+    MAX_WEEKS = 21
+    return min(current_week, MAX_WEEKS)
+
 async def scheduled_matchups(context):
     """Send weekly matchups update"""
     api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
     chat_ids = os.getenv("CHAT_ID").split(',')
     
     try:
-        # Get league info and find current week
+        # Get league info and determine current week
         league_info = await api.get_league_info()
         matchups = league_info.get("matchups", [])
-        current_week = 15  # This will auto-increment each week
+        
+        current_week = get_current_week()
+        print(f"Calculated current week as: {current_week}")
         
         # Find the current week's matchups
         target_period = None
@@ -820,6 +837,7 @@ async def scheduled_matchups(context):
                     text=message,
                     parse_mode=ParseMode.MARKDOWN
                 )
+                print(f"Sent week {current_week} matchups to chat {chat_id}")
             except Exception as e:
                 print(f"Error sending matchups to chat {chat_id}: {str(e)}")
                 
@@ -929,21 +947,21 @@ def main():
     job_queue.run_daily(
         weekly_update,
         time=time(13, 0),  # This will be 9:00 AM ET (UTC-4)
-        days=(0,)  # Monday
+        days=(1,)  # Monday
     )
 
         # Standings at 9 AM ET (13:00 UTC)
     job_queue.run_daily(
         scheduled_standings,
         time=time(13, 0),  # 9:00 AM ET
-        days=(0,)  # Monday
+        days=(1,)  # Monday (in v20.8 cron-style scheme where 1=Monday)
     )
     
     # Matchups at 11 AM ET (15:00 UTC)
     job_queue.run_daily(
         scheduled_matchups,
         time=time(15, 0),  # 11:00 AM ET
-        days=(0,)  # Monday
+        days=(1,)  # Monday
     )
     
     # Add handlers for all league commands
