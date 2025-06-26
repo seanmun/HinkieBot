@@ -238,25 +238,25 @@ async def handle_message(update, context):
         await update.message.reply_text("🅱️🅱️🅱️")
         return
     
-    if 'lamelo' in text_lower:
-        await update.message.reply_text("🅱️🅱️🅱️")
-        return
+    # if 'lamelo' in text_lower:
+    #     await update.message.reply_text("🅱️🅱️🅱️")
+    #     return
     
-    if 'lonzo' in text_lower:
-        await update.message.reply_text("🅱️🅱️🅱️")
-        return
+    # if 'lonzo' in text_lower:
+    #     await update.message.reply_text("🅱️🅱️🅱️")
+    #     return
     
     if 'colangelo' in text_lower:
         await update.message.reply_text("Absolute peice of shit")
         return
     
-    if 'liangelo' in text_lower:
-        await update.message.reply_text("🅱️🅱️🅱️")
-        return
+    # if 'liangelo' in text_lower:
+    #     await update.message.reply_text("🅱️🅱️🅱️")
+    #     return
     
-    if 'okafor' in text_lower:
-        await update.message.reply_text("Whooops that is my bad")
-        return
+    # if 'okafor' in text_lower:
+    #     await update.message.reply_text("Whooops that is my bad")
+    #     return
     
     # if 'embiid' in text_lower:
     #     await update.message.reply_text("My Son will be the light that pulls this city from the darkness.\n\nThe fruits of the process will soon ripen and the harvest will yield great things.\n\nNo matter what you must always...\n\nALWAYS...\n\nTRUST THE PROCESS")
@@ -270,9 +270,9 @@ async def handle_message(update, context):
         await update.message.reply_text("Worlds #1 Commish")
         return
     
-    if 'ian' in text_lower:
-        await update.message.reply_text("🐍")
-        return
+    # if 'ian' in text_lower:
+    #     await update.message.reply_text("🐍")
+    #     return
 
     if 'fartcoin' in text_lower:
         await update.message.reply_text("Hot air rises 💨")
