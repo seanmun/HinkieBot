@@ -218,21 +218,21 @@ async def handle_message(update, context):
     # Check for team owner names
 
         
-    if 'pjio' in text_lower:
-        await update.message.reply_text("🤌 heeeyy gabagol")
-        return
+    # if 'pjio' in text_lower:
+    #     await update.message.reply_text("🤌 heeeyy gabagol")
+    #     return
         
-    if 'kirbiak' in text_lower:
-        await update.message.reply_text("🥷🥷 twinjas")
-        return
+    # if 'kirbiak' in text_lower:
+    #     await update.message.reply_text("🥷🥷 twinjas")
+    #     return
         
-    if 'pudd' in text_lower:
-        await update.message.reply_text("Dave 🤴🏻")
-        return
+    # if 'pudd' in text_lower:
+    #     await update.message.reply_text("Dave 🤴🏻")
+    #     return
     
-    if 'raskob' in text_lower:
-        await update.message.reply_text("👽")
-        return
+    # if 'raskob' in text_lower:
+    #     await update.message.reply_text("👽")
+    #     return
     
     if 'lavar' in text_lower:
         await update.message.reply_text("🅱️🅱️🅱️")
@@ -258,9 +258,9 @@ async def handle_message(update, context):
         await update.message.reply_text("Whooops that is my bad")
         return
     
-    if 'embiid' in text_lower:
-        await update.message.reply_text("My Son will be the light that pulls this city from the darkness.\n\nThe fruits of the process will soon ripen and the harvest will yield great things.\n\nNo matter what you must always...\n\nALWAYS...\n\nTRUST THE PROCESS")
-        return
+    # if 'embiid' in text_lower:
+    #     await update.message.reply_text("My Son will be the light that pulls this city from the darkness.\n\nThe fruits of the process will soon ripen and the harvest will yield great things.\n\nNo matter what you must always...\n\nALWAYS...\n\nTRUST THE PROCESS")
+    #     return
     
     if 'colangelo' in text_lower:
         await update.message.reply_text("Absolute peice of shit")
