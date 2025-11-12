@@ -774,9 +774,9 @@ async def scheduled_standings(context):
 def get_current_week():
     """
     Calculate the current week number based on the season start date
-    Season starts on October 28, 2024 (Week 1)
+    Season starts on October 21, 2025 (Week 1)
     """
-    season_start = datetime(2024, 10, 28)  # First Monday of the season (Week 1)
+    season_start = datetime(2025, 10, 21)  # First Monday of the season (Week 1)
     today = datetime.now()
     
     # If we're before the season start, return week 1
@@ -849,27 +849,24 @@ async def weekly_update(context):
     """Send weekly matchup updates"""
     api = FantraxAPI(os.getenv("FANTRAX_LEAGUE_ID"))
     chat_ids = os.getenv("CHAT_ID").split(',')
-    
+
     try:
         league_info = await api.get_league_info()
-        
-        # Find current period
-        today = datetime.now()
+        matchups = league_info.get("matchups", [])
+
+        # Get current week using calculation
+        current_week = get_current_week()
+        print(f"Calculated current week as: {current_week}")
+
+        # Find the current week's matchups
         current_period = None
-        for period in league_info.get("matchups", []):
-            start_date = period.get("startDate")
-            end_date = period.get("endDate")
-            
-            if start_date and end_date:
-                start = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-                end = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-                
-                if start <= today <= end:
-                    current_period = period
-                    break
-        
+        for period in matchups:
+            if period.get("period") == current_week:
+                current_period = period
+                break
+
         if not current_period:
-            print("No current period found for weekly update")
+            print(f"Could not find matchups for week {current_week}")
             return
             
         message = f"*🏀 Week {current_period.get('period')} Matchups*\n\n"
@@ -943,26 +940,26 @@ def main():
     application.add_handler(CommandHandler("test", test_command))
 
     # Schedule weekly updates - single configuration
-    # job_queue = application.job_queue
-    # job_queue.run_daily(
-    #     weekly_update,
-    #     time=time(13, 0),  # This will be 9:00 AM ET (UTC-4)
-    #     days=(1,)  # Monday
-    # )
+    job_queue = application.job_queue
+    job_queue.run_daily(
+        weekly_update,
+        time=time(13, 0),  # This will be 9:00 AM ET (UTC-4)
+        days=(1,)  # Monday
+    )
 
-    #     # Standings at 9 AM ET (13:00 UTC)
-    # job_queue.run_daily(
-    #     scheduled_standings,
-    #     time=time(13, 0),  # 9:00 AM ET
-    #     days=(1,)  # Monday (in v20.8 cron-style scheme where 1=Monday)
-    # )
-    
-    # # Matchups at 11 AM ET (15:00 UTC)
-    # job_queue.run_daily(
-    #     scheduled_matchups,
-    #     time=time(15, 0),  # 11:00 AM ET
-    #     days=(1,)  # Monday
-    # )
+    # Standings at 9 AM ET (13:00 UTC)
+    job_queue.run_daily(
+        scheduled_standings,
+        time=time(13, 0),  # 9:00 AM ET
+        days=(1,)  # Monday (in v20.8 cron-style scheme where 1=Monday)
+    )
+
+    # Matchups at 11 AM ET (15:00 UTC)
+    job_queue.run_daily(
+        scheduled_matchups,
+        time=time(15, 0),  # 11:00 AM ET
+        days=(1,)  # Monday
+    )
     
     # Add handlers for all league commands
     for command in LEAGUE_INFO.keys():
