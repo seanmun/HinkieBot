@@ -774,9 +774,9 @@ async def scheduled_standings(context):
 def get_current_week():
     """
     Calculate the current week number based on the season start date
-    Season starts on October 21, 2025 (Week 1)
+    Season starts on October 14, 2025 (Week 1)
     """
-    season_start = datetime(2025, 10, 21)  # First Monday of the season (Week 1)
+    season_start = datetime(2025, 10, 14)  # First Monday of the season (Week 1)
     today = datetime.now()
     
     # If we're before the season start, return week 1
