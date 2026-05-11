@@ -939,22 +939,22 @@ def main():
     # test command
     application.add_handler(CommandHandler("test", test_command))
 
-    # Schedule weekly updates - single configuration
-    job_queue = application.job_queue
-
-    # Standings at 9 AM ET (13:00 UTC)
-    job_queue.run_daily(
-        scheduled_standings,
-        time=time(13, 0),  # 9:00 AM ET
-        days=(1,)  # Monday (in v20.8 cron-style scheme where 1=Monday)
-    )
-
-    # Matchups at 9 AM ET (13:00 UTC)
-    job_queue.run_daily(
-        scheduled_matchups,
-        time=time(13, 0),  # 9:00 AM ET
-        days=(1,)  # Monday
-    )
+    # Weekly updates disabled
+    # job_queue = application.job_queue
+    #
+    # # Standings at 9 AM ET (13:00 UTC)
+    # job_queue.run_daily(
+    #     scheduled_standings,
+    #     time=time(13, 0),  # 9:00 AM ET
+    #     days=(1,)  # Monday (in v20.8 cron-style scheme where 1=Monday)
+    # )
+    #
+    # # Matchups at 9 AM ET (13:00 UTC)
+    # job_queue.run_daily(
+    #     scheduled_matchups,
+    #     time=time(13, 0),  # 9:00 AM ET
+    #     days=(1,)  # Monday
+    # )
     
     # Add handlers for all league commands
     for command in LEAGUE_INFO.keys():
