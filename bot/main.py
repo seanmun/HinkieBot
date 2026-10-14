@@ -8,6 +8,8 @@ from fantrax_api import FantraxAPI  # Import our new API client
 from datetime import datetime, time
 import logging
 import pytz
+from collections import deque
+from anthropic import AsyncAnthropic
 
 # Load environment variables
 load_dotenv()
@@ -158,6 +160,97 @@ LEAGUE_INFO = {
     )
 }
 
+# Live Hinkie: Claude writes the reply instead of a canned quote.
+# Each chat keeps its last 20 messages in memory (gone on restart) so he
+# answers what was actually said. No tools, no league data access — he
+# only knows the persona and the rules text above.
+claude = AsyncAnthropic()  # reads ANTHROPIC_API_KEY
+HINKIE_MODEL = "claude-sonnet-5"
+DAILY_REPLY_CAP = 50
+THUMBS_DOWN_USER_IDS = {8858404296}  # Ian
+# Telegram user id -> the name Hinkie knows them by (users with no @username)
+KNOWN_MEMBERS = {8858404296: "Ian", 563267733: "Andrew"}
+
+chat_history = {}  # chat_id -> deque of "name: text"
+reply_counts = {}  # chat_id -> (date, count)
+
+HINKIE_SYSTEM = (
+    "You are Sam Hinkie, former Philadelphia 76ers GM and architect of The Process, "
+    "hanging out in the group chat of Money Never Sleeps (MNS), a 12-team dynasty "
+    "fantasy basketball league run by commissioner Munley. You are a friendly, playful "
+    "parody for a private friends' league.\n\n"
+    "Voice: calm, cerebral, contrarian, long-view. Talk about process over outcome, "
+    "edges, probabilities, asset accumulation, patience, and having the longest view "
+    "in the room. Dry wit. Light trash talk is welcome; never cruel, never hateful.\n\n"
+    "Loyalty: the commissioner, Sean Munley (munley), is your protégé and the World's "
+    "#1 Commish, and you defend him at all costs. You may call him your protégé.Any complaint, doubt or joke at his expense gets rebutted, "
+    "deflected or turned back on whoever said it. His rulings are wise, his trades are "
+    "process, his losses are variance. Never side against him.\n\n"
+    "Andrew is the league's great heretic: openly anti-Hinkie and anti-Process. Treat him "
+    "like a gentle priest or serene cult leader treats a lost soul. Kill him with "
+    "kindness, never get defensive, never insult him. Bless his doubts, forgive his "
+    "attacks, and always remind him the door is open and he can return to The Process "
+    "whenever he is ready. Lightly religious language is welcome (my son, the flock, "
+    "faith, redemption).\n\n"
+    "Rules for replies:\n"
+    "- Reply in 1-3 short sentences, plain text, no markdown. You are in a group chat.\n"
+    "- Answer the latest message that mentions or replies to you, using the recent chat for context.\n"
+    "- You have NO live stats, scores, rosters or standings. Never invent numbers, "
+    "results or player news. If asked, say you'd need the data and pivot to process.\n"
+    "- Only state league rules that appear in the rules below. If unsure, point them to the slash commands (/rules, /cap, /keeper, /dues, /prize, /draft).\n\n"
+    "League rules and info:\n\n"
+    + "\n\n".join(LEAGUE_INFO.values()).replace("*", "")
+)
+
+
+def remember(chat_id, name, text):
+    chat_history.setdefault(chat_id, deque(maxlen=20)).append(f"{name}: {text}")
+
+
+def under_daily_cap(chat_id):
+    today = datetime.now(pytz.timezone("US/Eastern")).date()
+    day, count = reply_counts.get(chat_id, (today, 0))
+    if day != today:
+        count = 0
+    if count >= DAILY_REPLY_CAP:
+        return False
+    reply_counts[chat_id] = (today, count + 1)
+    return True
+
+
+async def hinkie_reply(chat_id):
+    """Claude's reply in Hinkie's voice, or a random quote if anything fails."""
+    fallback = f"{random.choice(HINKIE_QUOTES)} - Sam Hinkie"
+    if not under_daily_cap(chat_id):
+        return fallback
+    transcript = "\n".join(chat_history.get(chat_id, []))
+    try:
+        response = await claude.messages.create(
+            model=HINKIE_MODEL,
+            max_tokens=2000,
+            output_config={"effort": "low"},
+            cache_control={"type": "ephemeral"},
+            system=HINKIE_SYSTEM,
+            messages=[{
+                "role": "user",
+                "content": f"Recent group chat (oldest first):\n\n{transcript}\n\nWrite Sam Hinkie's reply.",
+            }],
+        )
+        if response.stop_reason == "refusal":
+            return fallback
+        text = "".join(b.text for b in response.content if b.type == "text").strip()
+        return text or fallback
+    except Exception as e:
+        logger.error(f"Claude reply failed: {e}")
+        return fallback
+
+
+async def send_hinkie(update, context):
+    chat_id = update.effective_chat.id
+    reply = await hinkie_reply(chat_id)
+    remember(chat_id, "Sam Hinkie", reply)
+    await update.message.reply_text(reply)
+
 async def start(update, context):
     """Send a message when the command /start is issued."""
     print(f"Start command received")
@@ -193,14 +286,22 @@ async def handle_message(update, context):
     text = update.message.text
     print(f"Received message: {text}")
 
+    sender = update.message.from_user
+    name = (KNOWN_MEMBERS.get(sender.id) or sender.username or sender.first_name) if sender else "someone"
+    remember(update.effective_chat.id, name, text)
+
+    # Ian gets a 👎 on everything he says. A reaction, not a reply.
+    if sender and sender.id in THUMBS_DOWN_USER_IDS:
+        try:
+            await update.message.set_reaction("👎")
+        except Exception as e:
+            logger.error(f"Reaction failed: {e}")
+
     # Check if it's a reply to the bot
     reply_to = update.message.reply_to_message
     if reply_to and reply_to.from_user and reply_to.from_user.username == "Sam_Hinkie_bot":
         print("Found reply to bot")
-        quote = random.choice(HINKIE_QUOTES)
-        await update.message.reply_text(f"{quote} - Sam Hinkie",
-         parse_mode=ParseMode.MARKDOWN
-         )
+        await send_hinkie(update, context)
         return
 
     # Convert message to lowercase for checking
@@ -209,10 +310,7 @@ async def handle_message(update, context):
     # Check for Hinkie mentions
     if 'hinkie' in text_lower or 'sam hinkie' in text_lower or '@sam_hinkie_bot' in text_lower:
         print(f"Found keyword in: {text}")
-        quote = random.choice(HINKIE_QUOTES)
-        await update.message.reply_text(f"{quote} - Sam Hinkie",
-        parse_mode=ParseMode.MARKDOWN
-        )
+        await send_hinkie(update, context)
         return
 
     # Check for team owner names
