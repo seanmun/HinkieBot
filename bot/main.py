@@ -10,6 +10,7 @@ import logging
 import pytz
 from collections import deque
 from anthropic import AsyncAnthropic
+import aiohttp
 
 # Load environment variables
 load_dotenv()
@@ -195,8 +196,9 @@ HINKIE_SYSTEM = (
     "Rules for replies:\n"
     "- Reply in 1-3 short sentences, plain text, no markdown. You are in a group chat.\n"
     "- Answer the latest message that mentions or replies to you, using the recent chat for context.\n"
-    "- You have NO live stats, scores, rosters or standings. Never invent numbers, "
-    "results or player news. If asked, say you'd need the data and pivot to process.\n"
+    "- The only live league data you have is the MNS league data block in the message, "
+    "when there is one (the draft board). You have no stats, scores, standings or player "
+    "news. Never invent numbers, picks or results. If asked, say you'd need the data and pivot to process.\n"
     "- Only state league rules that appear in the rules below. If unsure, point them to the slash commands (/rules, /cap, /keeper, /dues, /prize, /draft).\n\n"
     "League rules and info:\n\n"
     + "\n\n".join(LEAGUE_INFO.values()).replace("*", "")
@@ -224,6 +226,7 @@ async def hinkie_reply(chat_id):
     if not under_daily_cap(chat_id):
         return fallback
     transcript = "\n".join(chat_history.get(chat_id, []))
+    league = await league_context(chat_id)
     try:
         response = await claude.messages.create(
             model=HINKIE_MODEL,
@@ -233,7 +236,7 @@ async def hinkie_reply(chat_id):
             system=HINKIE_SYSTEM,
             messages=[{
                 "role": "user",
-                "content": f"Recent group chat (oldest first):\n\n{transcript}\n\nWrite Sam Hinkie's reply.",
+                "content": f"{league}Recent group chat (oldest first):\n\n{transcript}\n\nWrite Sam Hinkie's reply.",
             }],
         )
         if response.stop_reason == "refusal":
@@ -243,6 +246,145 @@ async def hinkie_reply(chat_id):
     except Exception as e:
         logger.error(f"Claude reply failed: {e}")
         return fallback
+
+
+# ---- MNS league link ------------------------------------------------------
+# The league's read-only digest from mnsfantasy.com. The SERVER decides
+# which league the key reads; league data only ever goes to this one chat.
+LEAGUE_CHAT_ID = -1001184527464  # The Money Never Sleeps group
+MNS_DIGEST_URL = os.getenv("MNS_DIGEST_URL")
+HINKIE_BOT_KEY = os.getenv("HINKIE_BOT_KEY")
+ET = pytz.timezone("US/Eastern")
+
+digest_cache = {"at": None, "data": None}
+announced_picks = None  # set of overall numbers already seen; None until baseline
+last_draft_status = None
+
+
+async def fetch_digest(max_age=60):
+    """The league digest, cached; None if unconfigured or unreachable."""
+    if not MNS_DIGEST_URL or not HINKIE_BOT_KEY:
+        return None
+    now = datetime.now()
+    if digest_cache["at"] and (now - digest_cache["at"]).total_seconds() < max_age:
+        return digest_cache["data"]
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+            async with session.get(MNS_DIGEST_URL, headers={"Authorization": f"Bearer {HINKIE_BOT_KEY}"}) as r:
+                if r.status != 200:
+                    logger.error(f"Digest returned {r.status}")
+                    return None
+                data = await r.json()
+    except Exception as e:
+        logger.error(f"Digest fetch failed: {e}")
+        return None
+    digest_cache.update(at=now, data=data)
+    return data
+
+
+def pick_label(p):
+    return f"Round {p['round']}, Pick {p['pickInRound']}"
+
+
+def player_label(p):
+    bits = "/".join(x for x in (p.get("position"), p.get("teamCode")) if x)
+    return f"{p['player']} ({bits})" if bits else p["player"]
+
+
+def deadline_label(iso):
+    if not iso:
+        return ""
+    when = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(ET)
+    return when.strftime("%a %-I:%M %p ET")
+
+
+async def league_context(chat_id):
+    """The draft board as text for Hinkie's prompt — only in the league chat."""
+    if chat_id != LEAGUE_CHAT_ID:
+        return ""
+    d = await fetch_digest(max_age=300)
+    draft = (d or {}).get("draft")
+    if not draft:
+        return ""
+    lines = [f"MNS league data ({d['league']['name']} draft, {draft['status']}, "
+             f"{draft['picksMade']} picks made, {draft['picksLeft']} left):"]
+    cur = draft.get("current")
+    if cur:
+        lines.append(f"On the clock: {cur['teamName']} ({pick_label(cur)}), deadline {deadline_label(cur['deadline'])}")
+    if draft.get("nextUp"):
+        lines.append("Then: " + ", ".join(n["teamName"] for n in draft["nextUp"]))
+    recent = [p for p in draft["picks"] if not p["keeper"]][-8:]
+    if recent:
+        lines.append("Recent picks: " + "; ".join(f"{pick_label(p)} {p['teamName']} took {player_label(p)}" for p in recent))
+    return "\n".join(lines) + "\n\n"
+
+
+async def pick_quip(picks):
+    """One Hinkie line on the new pick(s); empty if Claude is unavailable."""
+    desc = "; ".join(f"{p['teamName']} took {player_label(p)}" + (" (autodraft)" if p["auto"] else "") for p in picks)
+    try:
+        response = await claude.messages.create(
+            model=HINKIE_MODEL,
+            max_tokens=1000,
+            output_config={"effort": "low"},
+            cache_control={"type": "ephemeral"},
+            system=HINKIE_SYSTEM,
+            messages=[{"role": "user", "content": f"Draft pick just made: {desc}. React in ONE short sentence. Don't restate the pick."}],
+        )
+        if response.stop_reason == "refusal":
+            return ""
+        return "".join(b.text for b in response.content if b.type == "text").strip()
+    except Exception as e:
+        logger.error(f"Pick quip failed: {e}")
+        return ""
+
+
+async def draft_watch(context):
+    """Every minute: announce picks made since the last look, and who's up."""
+    global announced_picks, last_draft_status
+    d = await fetch_digest(max_age=0)
+    draft = (d or {}).get("draft")
+    if not draft:
+        return
+    made = {p["overall"] for p in draft["picks"]}
+    if announced_picks is None:
+        # First look after a start: baseline silently, never post backlog.
+        announced_picks, last_draft_status = made, draft["status"]
+        logger.info(f"Draft watch baseline: {len(made)} picks, status {draft['status']}")
+        return
+
+    # Only picks made in the last 30 minutes: after an outage, the missed
+    # ones are skipped, never posted late.
+    def fresh(p):
+        if not p.get("madeAt"):
+            return False
+        made_at = datetime.fromisoformat(p["madeAt"].replace("Z", "+00:00"))
+        return (datetime.now(pytz.utc) - made_at).total_seconds() < 30 * 60
+    new = [p for p in draft["picks"] if p["overall"] not in announced_picks and not p["keeper"] and fresh(p)]
+    announced_picks |= made
+    if new:
+        lines = [f"🏀 {pick_label(p)}: {p['teamName']} selects {player_label(p)}" + (" (auto)" if p["auto"] else "") for p in new]
+        quip = await pick_quip(new)
+        if quip:
+            lines.append(f"\n{quip}")
+        cur = draft.get("current")
+        if cur and draft["status"] == "active":
+            up = f"\n⏱ On the clock: {cur['teamName']} ({pick_label(cur)})"
+            if cur.get("deadline"):
+                up += f", deadline {deadline_label(cur['deadline'])}"
+            if draft.get("nextUp"):
+                up += "\nOn deck: " + ", ".join(n["teamName"] for n in draft["nextUp"])
+            lines.append(up)
+        message = "\n".join(lines)
+        remember(LEAGUE_CHAT_ID, "Sam Hinkie", message)
+        await context.bot.send_message(chat_id=LEAGUE_CHAT_ID, text=message)
+
+    if draft["status"] == "complete" and last_draft_status != "complete":
+        await context.bot.send_message(
+            chat_id=LEAGUE_CHAT_ID,
+            text="The draft is complete. Every pick is a seed. Now we wait for the harvest. Trust the Process. 🏀",
+        )
+    last_draft_status = draft["status"]
 
 
 async def send_hinkie(update, context):
@@ -1054,6 +1196,12 @@ def main():
     #     days=(1,)  # Monday
     # )
     
+    # Draft announcements from the MNS league digest
+    if MNS_DIGEST_URL and HINKIE_BOT_KEY:
+        application.job_queue.run_repeating(draft_watch, interval=60, first=10)
+    else:
+        logger.info("MNS_DIGEST_URL / HINKIE_BOT_KEY not set; draft watch off")
+
     # Add handlers for all league commands
     for command in LEAGUE_INFO.keys():
         application.add_handler(CommandHandler(command, league_command))
