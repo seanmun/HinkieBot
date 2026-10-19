@@ -195,9 +195,13 @@ HINKIE_SYSTEM = (
     "Rules for replies:\n"
     "- Reply in 1-3 short sentences, plain text, no markdown. You are in a group chat.\n"
     "- Answer the latest message that mentions or replies to you, using the recent chat for context.\n"
-    "- The only live league data you have is the MNS league data block in the message, "
-    "when there is one (the draft board). You have no stats, scores, standings or player "
-    "news. Never invent numbers, picks or results. If asked, say you'd need the data and pivot to process.\n"
+    "- Your live league data is the MNS league data block in the message, when there is one: "
+    "settings, every team's record, cap and roster, and the draft board. It comes from the "
+    "league's app and OVERRIDES the older rules text below wherever they disagree (cap numbers, "
+    "fees, roster sizes). You have no box scores or player news. Never invent numbers, picks "
+    "or results. If something isn't in the data, say so and pivot to process.\n"
+    "- Tie a chat member to a team only through the owner handles and Telegram usernames in "
+    "the data. Never guess who owns a team.\n"
     "- Only state league rules that appear in the rules below. If unsure, point them to the slash commands (/rules, /cap, /keeper, /dues, /prize, /draft).\n\n"
     "League rules and info:\n\n"
     + "\n\n".join(LEAGUE_INFO.values()).replace("*", "")
@@ -225,7 +229,11 @@ async def hinkie_reply(chat_id):
     if not under_daily_cap(chat_id):
         return fallback
     transcript = "\n".join(chat_history.get(chat_id, []))
-    league = await league_context(chat_id)
+    try:
+        league = await league_context(chat_id)
+    except Exception as e:
+        logger.error(f"League context failed: {e}")
+        league = ""
     try:
         response = await claude.messages.create(
             model=HINKIE_MODEL,
@@ -297,24 +305,93 @@ def deadline_label(iso):
     return when.strftime("%a %-I:%M %p ET")
 
 
+def money(n):
+    return f"${(n or 0) / 1_000_000:.1f}M"
+
+
 async def league_context(chat_id):
-    """The draft board as text for Hinkie's prompt — only in the league chat."""
+    """The league as text for Hinkie's prompt — only in the league chat."""
     if chat_id != LEAGUE_CHAT_ID:
         return ""
     d = await fetch_digest(max_age=300)
-    draft = (d or {}).get("draft")
-    if not draft:
+    if not d:
         return ""
-    lines = [f"MNS league data ({d['league']['name']} draft, {draft['status']}, "
-             f"{draft['picksMade']} picks made, {draft['picksLeft']} left):"]
-    cur = draft.get("current")
-    if cur:
-        lines.append(f"On the clock: {cur['teamName']} ({pick_label(cur)}), deadline {deadline_label(cur['deadline'])}")
-    if draft.get("nextUp"):
-        lines.append("Then: " + ", ".join(n["teamName"] for n in draft["nextUp"]))
-    recent = [p for p in draft["picks"] if not p["keeper"]][-8:]
-    if recent:
-        lines.append("Recent picks: " + "; ".join(f"{pick_label(p)} {p['teamName']} took {player_label(p)}" for p in recent))
+    lg = d["league"]
+    lines = [f"MNS league data — {lg['name']} {lg['seasonYear']}, phase: {lg.get('phase')}"
+             + (f", week {lg['week']} (ends {lg['weekEnds']})" if lg.get("week") else "")]
+
+    st = d.get("settings") or {}
+    cap = st.get("cap")
+    fees = st.get("fees")
+    if cap:
+        first_fee = f"${fees['firstApronFee']}" if fees else "a one-time fee"
+        lines.append(
+            f"How the MNS cap works (the app's rules): cap {money(cap['base'])}. Going over the "
+            f"first apron ({money(cap['firstApron'])}) is ALLOWED and normal: the team pays "
+            f"{first_fee} once into the prize pool and can then stay over all season. Over the "
+            f"second apron ({money(cap['secondApron'])}) the team pays ${cap['penaltyRatePerM']} per "
+            f"$1M over (rounded up) into the pot, charged at its season peak and never refunded. "
+            f"The hard cap ({money(cap['hardCap'])}) is the only true ceiling: adds and trades that "
+            f"would end above it are blocked, and a team above it must get under. Fees book at the "
+            f"season's first tip-off, not during the draft. Teams can also trade cap space. Being "
+            f"over an apron is a legitimate strategy that feeds the pot, not a mistake: never "
+            f"shame it. If anything, thank them for their generosity to the prize pool."
+        )
+    if fees:
+        lines.append(f"Fees: buy-in ${fees['buyIn']}, first apron ${fees['firstApronFee']}, "
+                     f"franchise tag ${fees['franchiseTagFee']}, redshirt ${fees['redshirtFee']}, "
+                     f"redshirt activation ${fees['activationFee']}")
+    ro = st.get("roster")
+    if ro:
+        lines.append(f"Roster: {ro['starterSize']} starters, {ro['activeSize']} active, {ro['irSlots']} IR, "
+                     f"up to {ro['maxKeepers']} keepers; categories: {', '.join(st.get('categories') or [])}; "
+                     f"{st.get('seasonWeeks')} weeks")
+    pot = st.get("prizePool")
+    if pot:
+        lines.append(f"Prize pot: ${pot['potUsd']}" + "".join(f", {x['label']} {x['share']}%" for x in pot.get("splits") or []))
+
+    tag = {"active": "", "bench": " [bench]", "ir": " [IR]", "redshirt": " [redshirt]"}
+
+    def cap_status(salary):
+        """Where a payroll sits, decided here so the model never does the math."""
+        if not cap:
+            return ""
+        if salary > cap["hardCap"]:
+            return f"OVER THE HARD CAP by {money(salary - cap['hardCap'])}, must get under"
+        if salary > cap["secondApron"]:
+            over_m = -(-(salary - cap["secondApron"]) // 1_000_000)  # ceil
+            return f"over the second apron by {money(salary - cap['secondApron'])} (${over_m * cap['penaltyRatePerM']} to the pot)"
+        if salary > cap["firstApron"]:
+            return f"over the first apron only (one-time fee), {money(cap['secondApron'] - salary)} below the second apron"
+        return f"under the first apron, {money(cap['firstApron'] - salary)} of room"
+    lines.append("Teams (record | cap used | team Cat Score and category ranks from its best "
+                 "10 players | roster by salary with each player's Cat Score). Stats are this "
+                 "regular season once it starts, last season before that.")
+    for t in d.get("teams") or []:
+        who = ", ".join(t["owners"]) + (f" @{t['telegramUsername']}" if t.get("telegramUsername") else "")
+        titles = f", titles {t['banners']}" if t.get("banners") else ""
+        delta = f" (cap trade {money(t['capTradeDelta'])})" if t.get("capTradeDelta") else ""
+        def pl(p):
+            cat = f" cat {p['stats']['cat']}" if p.get("stats") and p["stats"].get("cat") is not None else " (no NBA stats)"
+            return (f"{p['name']} {p.get('position') or ''} {p.get('teamCode') or ''} {money(p['salary'])}{cat}"
+                    f"{tag.get(p['slot'], ' [' + p['slot'] + ']')}")
+        roster = "; ".join(pl(p) for p in t["roster"])
+        ranks = " ".join(f"{c} {r}" for c, r in (t.get("categoryRanks") or {}).items())
+        lines.append(f"- {t['name']} ({who}{titles}): {t['wins']}-{t['losses']}-{t['ties']} | "
+                     f"{money(t['salary'])}{delta}, {cap_status(t['salary'])} | team Cat Score {t.get('catScore')} | "
+                     f"category ranks of 12 (1 = best): {ranks} | {roster}")
+
+    draft = d.get("draft")
+    if draft and draft["status"] in ("active", "paused", "setup"):
+        lines.append(f"Draft: {draft['status']}, {draft['picksMade']} picks made, {draft['picksLeft']} left")
+        cur = draft.get("current")
+        if cur:
+            lines.append(f"On the clock: {cur['teamName']} ({pick_label(cur)}), deadline {deadline_label(cur['deadline'])}")
+        if draft.get("nextUp"):
+            lines.append("Then: " + ", ".join(n["teamName"] for n in draft["nextUp"]))
+        recent = [p for p in draft["picks"] if not p["keeper"]][-8:]
+        if recent:
+            lines.append("Recent picks: " + "; ".join(f"{pick_label(p)} {p['teamName']} took {player_label(p)}" for p in recent))
     return "\n".join(lines) + "\n\n"
 
 
@@ -381,9 +458,84 @@ async def draft_watch(context):
     if draft["status"] == "complete" and last_draft_status != "complete":
         await context.bot.send_message(
             chat_id=LEAGUE_CHAT_ID,
-            text="The draft is complete. Every pick is a seed. Now we wait for the harvest. Trust the Process. 🏀",
+            text="The draft is complete. Every pick is a seed. Time for report cards. 📝",
         )
+        digest_cache["at"] = None  # grade the final rosters, not the cached ones
+        await post_report(context.bot, LEAGUE_CHAT_ID)
     last_draft_status = draft["status"]
+
+
+GRADES_COOLDOWN = 600  # seconds between /grades runs per chat
+last_grades = {}
+
+
+def split_message(text, limit=4000):
+    """Telegram caps a message at 4096 characters: split on line breaks."""
+    parts, cur = [], ""
+    for line in text.split("\n"):
+        if len(cur) + len(line) + 1 > limit and cur:
+            parts.append(cur)
+            cur = ""
+        cur += line + "\n"
+    if cur.strip():
+        parts.append(cur)
+    return parts
+
+
+async def roster_report():
+    """Hinkie's graded overview of every roster, or None without data."""
+    league = await league_context(LEAGUE_CHAT_ID)
+    if not league:
+        return None
+    response = await claude.messages.create(
+        model=HINKIE_MODEL,
+        max_tokens=16000,
+        output_config={"effort": "medium"},
+        system=HINKIE_SYSTEM,
+        messages=[{"role": "user", "content": league + (
+            "Write Sam Hinkie's roster report card for every team in the league. This is a long "
+            "post, so ignore the 1-3 sentence limit. For each team, best grade to worst: the team "
+            "name and a letter grade (A+ to F) on the first line, then two or three short lines on "
+            "category strengths and holes (use the ranks), the cap position under the MNS cap rules, "
+            "(state each team's cap status exactly as given in the data), and anything notable (stars, rookies with no NBA stats yet as unknowns). Grade mostly "
+            "on category ranks and team Cat Score; cap room is a bonus, being over an apron is "
+            "never a penalty. Say once at the top whether the stats are last season's. Plain text, "
+            "no markdown, a few emoji are fine. End with one line of Hinkie wisdom. Keep it under "
+            "3,500 characters."
+        )}],
+    )
+    if response.stop_reason == "refusal":
+        return None
+    return "".join(b.text for b in response.content if b.type == "text").strip() or None
+
+
+async def post_report(bot, chat_id):
+    try:
+        report = await roster_report()
+    except Exception as e:
+        logger.error(f"Roster report failed: {e}")
+        report = None
+    if not report:
+        await bot.send_message(chat_id=chat_id, text="The data's not in front of me right now. Patience. Ask again shortly.")
+        return
+    remember(chat_id, "Sam Hinkie", report)
+    for part in split_message(report):
+        await bot.send_message(chat_id=chat_id, text=part)
+
+
+async def grades_command(update, context):
+    """/grades — the roster report card, in the league chat only."""
+    chat_id = update.effective_chat.id
+    if chat_id != LEAGUE_CHAT_ID:
+        await update.message.reply_text("Report cards are for the league chat only. Trust the Process.")
+        return
+    now = datetime.now()
+    if chat_id in last_grades and (now - last_grades[chat_id]).total_seconds() < GRADES_COOLDOWN:
+        await update.message.reply_text("I just graded everyone. The process needs time to work. Try again in a few minutes.")
+        return
+    last_grades[chat_id] = now
+    await update.message.reply_text("Grading every roster. One moment. 📝")
+    await post_report(context.bot, chat_id)
 
 
 async def send_hinkie(update, context):
@@ -410,7 +562,8 @@ async def start(update, context):
         '/cap - Salary cap info\n'
         '/dues - League dues\n'
         '/franchise - Franchise rules\n'
-        '/draft - Draft information'
+        '/draft - Draft information\n\n'
+        '/grades - Hinkie grades every roster'
     )
 
 async def handle_message(update, context):
@@ -478,6 +631,7 @@ def main():
 
     # Add handlers
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("grades", grades_command))
 
     # Draft announcements from the MNS league digest
     if MNS_DIGEST_URL and HINKIE_BOT_KEY:
