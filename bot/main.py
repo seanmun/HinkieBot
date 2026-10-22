@@ -208,6 +208,22 @@ HINKIE_SYSTEM = (
 )
 
 
+# Prompt caching (Oct 21 2026). The prefix must match byte for byte to
+# be reused, so the request is ordered steadiest first: the persona and
+# rules (never change), then the league data (changes only when the
+# digest does), then the chat transcript (new every message, never
+# cached). The old single top-level cache_control put the breakpoint
+# after the transcript, so nothing ever matched and the whole league
+# block was re-sent at full price on every reply.
+CACHE_1H = {"type": "ephemeral", "ttl": "1h"}
+HINKIE_SYSTEM_BLOCKS = [{"type": "text", "text": HINKIE_SYSTEM, "cache_control": CACHE_1H}]
+
+
+def league_block(league):
+    """The league data as its own cached block, or nothing without data."""
+    return [{"type": "text", "text": league, "cache_control": CACHE_1H}] if league else []
+
+
 def remember(chat_id, name, text):
     chat_history.setdefault(chat_id, deque(maxlen=20)).append(f"{name}: {text}")
 
@@ -239,11 +255,13 @@ async def hinkie_reply(chat_id):
             model=HINKIE_MODEL,
             max_tokens=2000,
             output_config={"effort": "low"},
-            cache_control={"type": "ephemeral"},
-            system=HINKIE_SYSTEM,
+            system=HINKIE_SYSTEM_BLOCKS,
             messages=[{
                 "role": "user",
-                "content": f"{league}Recent group chat (oldest first):\n\n{transcript}\n\nWrite Sam Hinkie's reply.",
+                "content": league_block(league) + [{
+                    "type": "text",
+                    "text": f"Recent group chat (oldest first):\n\n{transcript}\n\nWrite Sam Hinkie's reply.",
+                }],
             }],
         )
         if response.stop_reason == "refusal":
@@ -403,8 +421,7 @@ async def pick_quip(picks):
             model=HINKIE_MODEL,
             max_tokens=1000,
             output_config={"effort": "low"},
-            cache_control={"type": "ephemeral"},
-            system=HINKIE_SYSTEM,
+            system=HINKIE_SYSTEM_BLOCKS,
             messages=[{"role": "user", "content": f"Draft pick just made: {desc}. React in ONE short sentence. Don't restate the pick."}],
         )
         if response.stop_reason == "refusal":
@@ -491,8 +508,8 @@ async def roster_report():
         model=HINKIE_MODEL,
         max_tokens=16000,
         output_config={"effort": "medium"},
-        system=HINKIE_SYSTEM,
-        messages=[{"role": "user", "content": league + (
+        system=HINKIE_SYSTEM_BLOCKS,
+        messages=[{"role": "user", "content": league_block(league) + [{"type": "text", "text": (
             "Write Sam Hinkie's roster report card for every team in the league. This is a long "
             "post, so ignore the 1-3 sentence limit. For each team, best grade to worst: the team "
             "name and a letter grade (A+ to F) on the first line, then two or three short lines on "
@@ -502,7 +519,7 @@ async def roster_report():
             "never a penalty. Say once at the top whether the stats are last season's. Plain text, "
             "no markdown, a few emoji are fine. End with one line of Hinkie wisdom. Keep it under "
             "3,500 characters."
-        )}],
+        )}]}],
     )
     if response.stop_reason == "refusal":
         return None
