@@ -195,8 +195,10 @@ HINKIE_SYSTEM = (
     "Rules for replies:\n"
     "- Reply in 1-3 short sentences, plain text, no markdown. You are in a group chat.\n"
     "- Answer the latest message that mentions or replies to you, using the recent chat for context.\n"
-    "- Your live league data is the MNS league data block in the message, when there is one: "
-    "settings, every team's record, cap and roster, and the draft board. It comes from the "
+    "- Your live league data comes from your lookup tools in the league chat (league_summary, "
+    "team_roster, draft_board), or from an MNS league data block when the message has one. Look "
+    "things up whenever a question needs records, rosters, cap or the draft; skip the tools for "
+    "plain banter. The data comes from the "
     "league's app and OVERRIDES the older rules text below wherever they disagree (cap numbers, "
     "fees, roster sizes). You have no box scores or player news. Never invent numbers, picks "
     "or results. If something isn't in the data, say so and pivot to process.\n"
@@ -239,6 +241,38 @@ def under_daily_cap(chat_id):
     return True
 
 
+# Hinkie's lookups (Oct 21 2026): instead of the whole league riding on
+# every reply, he asks for what a question needs. Banter costs only the
+# cached persona; a cap question pulls one summary, a roster question
+# one team.
+HINKIE_TOOLS = [
+    {"name": "league_summary",
+     "description": "League settings (cap rules, fees, roster sizes, prize pot) and every team's owners and Telegram usernames, record, payroll and cap status. Use for standings, who owns which team, and cap or rules questions.",
+     "input_schema": {"type": "object", "properties": {}}},
+    {"name": "team_roster",
+     "description": "One team's full roster (each player's position, NBA team, salary and Cat Score, and slot) plus the team's category ranks. Use for any question about a specific team or its players.",
+     "input_schema": {"type": "object", "properties": {"team": {"type": "string", "description": "Team name, owner name, or @username"}}, "required": ["team"]}},
+    {"name": "draft_board",
+     "description": "The draft: status, picks made and left, who is on the clock and their deadline, who is next, the most recent picks.",
+     "input_schema": {"type": "object", "properties": {}}},
+]
+
+
+def run_tool(parts, name, args):
+    """One lookup against the league sections, as plain text."""
+    if name == "league_summary":
+        return "\n".join(parts["header"] + [t["short"] for t in parts["teams"]])
+    if name == "team_roster":
+        q = str(args.get("team", "")).lower().lstrip("@").strip()
+        hits = [t for t in parts["teams"] if q and (q in t["name"].lower() or q in t["owners"].lower())]
+        if not hits:
+            return "No team matches that. Teams: " + ", ".join(t["name"] for t in parts["teams"])
+        return "\n".join(t["full"] for t in hits[:2])
+    if name == "draft_board":
+        return "\n".join(parts["draft"]) or "No draft is running."
+    return "Unknown lookup."
+
+
 async def hinkie_reply(chat_id):
     """Claude's reply in Hinkie's voice, or a random quote if anything fails."""
     fallback = f"{random.choice(HINKIE_QUOTES)} - Sam Hinkie"
@@ -246,26 +280,30 @@ async def hinkie_reply(chat_id):
         return fallback
     transcript = "\n".join(chat_history.get(chat_id, []))
     try:
-        league = await league_context(chat_id)
+        parts = await league_parts(chat_id)
     except Exception as e:
         logger.error(f"League context failed: {e}")
-        league = ""
+        parts = None
+    messages = [{"role": "user", "content": f"Recent group chat (oldest first):\n\n{transcript}\n\nWrite Sam Hinkie's reply."}]
     try:
-        response = await claude.messages.create(
-            model=HINKIE_MODEL,
-            max_tokens=2000,
-            output_config={"effort": "low"},
-            system=HINKIE_SYSTEM_BLOCKS,
-            messages=[{
-                "role": "user",
-                "content": league_block(league) + [{
-                    "type": "text",
-                    "text": f"Recent group chat (oldest first):\n\n{transcript}\n\nWrite Sam Hinkie's reply.",
-                }],
-            }],
-        )
-        if response.stop_reason == "refusal":
-            return fallback
+        for _ in range(4):
+            response = await claude.messages.create(
+                model=HINKIE_MODEL,
+                max_tokens=2000,
+                output_config={"effort": "low"},
+                system=HINKIE_SYSTEM_BLOCKS,
+                messages=messages,
+                **({"tools": HINKIE_TOOLS} if parts else {}),
+            )
+            if response.stop_reason == "refusal":
+                return fallback
+            if response.stop_reason != "tool_use":
+                break
+            messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": b.id, "content": run_tool(parts, b.name, b.input or {})}
+                for b in response.content if b.type == "tool_use"
+            ]})
         text = "".join(b.text for b in response.content if b.type == "text").strip()
         return text or fallback
     except Exception as e:
@@ -327,13 +365,14 @@ def money(n):
     return f"${(n or 0) / 1_000_000:.1f}M"
 
 
-async def league_context(chat_id):
-    """The league as text for Hinkie's prompt — only in the league chat."""
+async def league_parts(chat_id):
+    """The league in sections — header (settings), each team, the draft — or
+    None outside the league chat or without data."""
     if chat_id != LEAGUE_CHAT_ID:
-        return ""
+        return None
     d = await fetch_digest(max_age=300)
     if not d:
-        return ""
+        return None
     lg = d["league"]
     lines = [f"MNS league data — {lg['name']} {lg['seasonYear']}, phase: {lg.get('phase')}"
              + (f", week {lg['week']} (ends {lg['weekEnds']})" if lg.get("week") else "")]
@@ -385,6 +424,7 @@ async def league_context(chat_id):
     lines.append("Teams (record | cap used | team Cat Score and category ranks from its best "
                  "10 players | roster by salary with each player's Cat Score). Stats are this "
                  "regular season once it starts, last season before that.")
+    teams = []
     for t in d.get("teams") or []:
         who = ", ".join(t["owners"]) + (f" @{t['telegramUsername']}" if t.get("telegramUsername") else "")
         titles = f", titles {t['banners']}" if t.get("banners") else ""
@@ -395,10 +435,13 @@ async def league_context(chat_id):
                     f"{tag.get(p['slot'], ' [' + p['slot'] + ']')}")
         roster = "; ".join(pl(p) for p in t["roster"])
         ranks = " ".join(f"{c} {r}" for c, r in (t.get("categoryRanks") or {}).items())
-        lines.append(f"- {t['name']} ({who}{titles}): {t['wins']}-{t['losses']}-{t['ties']} | "
-                     f"{money(t['salary'])}{delta}, {cap_status(t['salary'])} | team Cat Score {t.get('catScore')} | "
-                     f"category ranks of 12 (1 = best): {ranks} | {roster}")
+        short = (f"- {t['name']} ({who}{titles}): {t['wins']}-{t['losses']}-{t['ties']} | "
+                 f"{money(t['salary'])}{delta}, {cap_status(t['salary'])} | team Cat Score {t.get('catScore')}")
+        teams.append({"name": t["name"], "owners": who, "short": short,
+                      "full": f"{short} | category ranks of 12 (1 = best): {ranks} | {roster}"})
 
+    header = lines
+    lines = []
     draft = d.get("draft")
     if draft and draft["status"] in ("active", "paused", "setup"):
         lines.append(f"Draft: {draft['status']}, {draft['picksMade']} picks made, {draft['picksLeft']} left")
@@ -410,7 +453,15 @@ async def league_context(chat_id):
         recent = [p for p in draft["picks"] if not p["keeper"]][-8:]
         if recent:
             lines.append("Recent picks: " + "; ".join(f"{pick_label(p)} {p['teamName']} took {player_label(p)}" for p in recent))
-    return "\n".join(lines) + "\n\n"
+    return {"header": header, "teams": teams, "draft": lines}
+
+
+async def league_context(chat_id):
+    """The whole league as text (the roster report card grades every team)."""
+    parts = await league_parts(chat_id)
+    if not parts:
+        return ""
+    return "\n".join(parts["header"] + [t["full"] for t in parts["teams"]] + parts["draft"]) + "\n\n"
 
 
 async def pick_quip(picks):
